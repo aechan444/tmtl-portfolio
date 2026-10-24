@@ -18,6 +18,7 @@
     '<button type="button" class="ed-btn ed-primary" id="ed-toggle">✎ Edit page</button>' +
     '<button type="button" class="ed-btn ed-primary" id="ed-save" hidden>Save changes</button>' +
     '<button type="button" class="ed-btn" id="ed-cancel" hidden>Cancel</button>' +
+    '<button type="button" class="ed-btn ed-publish" id="ed-publish">🚀 Publish to GitHub</button>' +
     '<input type="file" id="ed-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>';
   document.body.appendChild(bar);
 
@@ -163,6 +164,30 @@
     }
   }
 
+  async function publish() {
+    if (location.protocol === 'file:') {
+      status('Publishing needs the local server. Open the site with "Start Portfolio.bat".', 'error');
+      return;
+    }
+    if (dirty) {
+      await save();
+      if (dirty) return;
+    }
+    const btn = $('ed-publish');
+    btn.disabled = true;
+    status('Publishing to GitHub…', '');
+    try {
+      const res = await fetch('/__publish', { method: 'POST' });
+      const result = await res.json();
+      status(result.message, result.ok ? 'ok' : 'error');
+    } catch (err) {
+      status('Could not publish: ' + err.message + '. Is "Start Portfolio.bat" running?', 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  $('ed-publish').addEventListener('click', publish);
   $('ed-toggle').addEventListener('click', () => setEditing(true));
   $('ed-save').addEventListener('click', async () => { await save(); if (!dirty) setEditing(false); });
   $('ed-cancel').addEventListener('click', () => {

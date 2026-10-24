@@ -902,6 +902,8 @@ button { font: inherit; color: inherit; }
 .ed-btn:hover { background: var(--chalk); color: var(--board-deep); }
 .ed-primary { background: var(--chalk-yellow); color: var(--board-deep); border-color: transparent; }
 .ed-primary:hover { background: var(--chalk); }
+.ed-publish { background: var(--chalk-green); color: var(--board-deep); border-color: transparent; }
+.ed-publish:disabled { opacity: .6; cursor: progress; }
 .ed-status:empty { display: none; }
 .ed-status {
   padding: 8px 14px;
