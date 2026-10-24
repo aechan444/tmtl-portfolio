@@ -1,8 +1,11 @@
-// In-page editor: "Edit page" makes every text block and member photo editable; "Save" writes index.html via server.ps1.
+// In-page editor: "Edit page" makes every text block and member photo editable.
+// On this PC, Save writes index.html through server.ps1 and Publish pushes to GitHub.
+// On the live GitHub Pages site, Save commits straight to the repository, after unlocking with a GitHub access key.
 (function () {
-  // Saving needs server.ps1, so only offer editing on this computer (not on GitHub Pages)
   const LOCAL = ['localhost', '127.0.0.1', ''].includes(location.hostname);
-  if (!LOCAL) return;
+  const REPO = { owner: 'aechan444', name: 'tmtl-portfolio', branch: 'main' };
+  const TOKEN_KEY = 'tmtl-gh-token';
+  const API = `https://api.github.com/repos/${REPO.owner}/${REPO.name}`;
 
   const BLOCKS = 'h1, h2, h3, h4, p, li, dt, dd, th, td, blockquote, figcaption';
   const SCOPE = '.hero, main, .footer';
@@ -10,16 +13,74 @@
   let dirty = false;
   let blocks = [];
 
+  /* ---------- Access key (live site only) ---------- */
+  function getToken() {
+    try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
+  }
+  function setToken(value) {
+    try { value ? localStorage.setItem(TOKEN_KEY, value) : localStorage.removeItem(TOKEN_KEY); } catch {}
+  }
+
+  async function gh(path, options = {}) {
+    const res = await fetch(API + path, {
+      ...options,
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: 'Bearer ' + getToken(),
+        ...(options.headers || {}),
+      },
+    });
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.json()).message; } catch {}
+      throw new Error(res.status === 401 ? 'the access key is invalid or expired' : detail || 'GitHub error ' + res.status);
+    }
+    return res.json();
+  }
+
+  async function checkToken() {
+    const repo = await gh('');
+    if (!repo.permissions || !repo.permissions.push) throw new Error('this key cannot write to ' + REPO.name);
+  }
+
+  function bytesToBase64(bytes) {
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(binary);
+  }
+
+  async function putFile(path, base64, message) {
+    let sha;
+    try { sha = (await gh('/contents/' + encodeURI(path) + '?ref=' + REPO.branch)).sha; } catch { sha = undefined; }
+    return gh('/contents/' + encodeURI(path), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, content: base64, branch: REPO.branch, sha }),
+    });
+  }
+
   /* ---------- Toolbar ---------- */
   const bar = document.createElement('div');
   bar.id = 'editor-bar';
+  bar.className = LOCAL ? 'is-local' : 'is-live';
   bar.innerHTML =
     '<span class="ed-status" id="ed-status" aria-live="polite"></span>' +
     '<button type="button" class="ed-btn ed-primary" id="ed-toggle">✎ Edit page</button>' +
     '<button type="button" class="ed-btn ed-primary" id="ed-save" hidden>Save changes</button>' +
     '<button type="button" class="ed-btn" id="ed-cancel" hidden>Cancel</button>' +
-    '<button type="button" class="ed-btn ed-publish" id="ed-publish">🚀 Publish to GitHub</button>' +
-    '<input type="file" id="ed-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>';
+    (LOCAL ? '<button type="button" class="ed-btn ed-publish" id="ed-publish">🚀 Publish to GitHub</button>'
+           : '<button type="button" class="ed-btn" id="ed-lock" hidden>Lock</button>') +
+    '<input type="file" id="ed-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>' +
+    (LOCAL ? '' :
+      '<form class="ed-unlock" id="ed-unlock" hidden>' +
+        '<p class="ed-unlock-title">Unlock editing</p>' +
+        '<p class="ed-unlock-text">Only Group 4 can edit this page. Paste the GitHub access key for <b>' + REPO.name + '</b>. It stays on this device only.</p>' +
+        '<input type="password" id="ed-token" placeholder="github_pat_…" autocomplete="off" aria-label="GitHub access key">' +
+        '<div class="ed-unlock-actions">' +
+          '<button type="submit" class="ed-btn ed-primary">Unlock</button>' +
+          '<button type="button" class="ed-btn" id="ed-unlock-cancel">Cancel</button>' +
+        '</div>' +
+      '</form>');
   document.body.appendChild(bar);
 
   const $ = id => document.getElementById(id);
@@ -56,11 +117,19 @@
     } else {
       blocks.forEach(el => { el.removeAttribute('contenteditable'); el.removeAttribute('spellcheck'); });
       blocks = [];
-      status('', '');
     }
     $('ed-toggle').hidden = on;
     $('ed-save').hidden = !on;
     $('ed-cancel').hidden = !on;
+    if (!LOCAL) $('ed-lock').hidden = !on;
+  }
+
+  async function startEditing() {
+    if (LOCAL) { setEditing(true); return; }
+    if (getToken()) { setEditing(true); return; }
+    $('ed-unlock').hidden = false;
+    $('ed-toggle').hidden = true;
+    $('ed-token').focus();
   }
 
   function markDirty() {
@@ -110,15 +179,28 @@
     if (e.shiftKey) document.execCommand('insertLineBreak');
   });
 
+  async function uploadImage(file) {
+    if (LOCAL) {
+      const res = await fetch('/__upload?name=' + encodeURIComponent(file.name), { method: 'POST', body: file });
+      if (!res.ok) throw new Error(await res.text());
+      return (await res.json()).path;
+    }
+    if (!/\.(png|jpe?g|webp|gif)$/i.test(file.name)) throw new Error('only PNG, JPG, WEBP or GIF images can be used');
+    const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
+    const path = `files/uploads/${stamp}-${file.name.replace(/[^A-Za-z0-9._-]/g, '-')}`;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    await putFile(path, bytesToBase64(bytes), 'Upload photo ' + file.name);
+    return path;
+  }
+
   fileInput.addEventListener('change', async () => {
     const file = fileInput.files[0];
     if (!file || !imageTarget) return;
     status('Uploading photo…', '');
     try {
-      const res = await fetch('/__upload?name=' + encodeURIComponent(file.name), { method: 'POST', body: file });
-      if (!res.ok) throw new Error(await res.text());
-      const { path } = await res.json();
-      imageTarget.src = path;
+      const path = await uploadImage(file);
+      imageTarget.src = LOCAL ? path : URL.createObjectURL(file); // the live copy appears after GitHub rebuilds
+      imageTarget.dataset.savedSrc = path;
       markDirty();
     } catch (err) {
       status('Photo upload failed: ' + err.message, 'error');
@@ -132,6 +214,10 @@
     doc.querySelector('#chatbot')?.remove();
     doc.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
     doc.querySelectorAll('[spellcheck]').forEach(el => el.removeAttribute('spellcheck'));
+    doc.querySelectorAll('img[data-saved-src]').forEach(img => {
+      img.setAttribute('src', img.dataset.savedSrc);
+      img.removeAttribute('data-saved-src');
+    });
     // undo state that script.js adds at runtime
     doc.classList.remove('js');
     doc.querySelectorAll('.reveal, .in, .scrolled, .active, .editing').forEach(el =>
@@ -151,16 +237,23 @@
   async function save() {
     status('Saving…', '');
     try {
-      const res = await fetch('/__save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
-        body: cleanHTML(),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      dirty = false;
-      status('Saved ✓', 'ok');
+      if (LOCAL) {
+        const res = await fetch('/__save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          body: cleanHTML(),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        dirty = false;
+        status('Saved ✓', 'ok');
+      } else {
+        const html = new TextEncoder().encode(cleanHTML());
+        await putFile('index.html', bytesToBase64(html), 'Edit portfolio online (' + new Date().toLocaleString() + ')');
+        dirty = false;
+        status('Saved to GitHub ✓ The live site updates in about a minute.', 'ok');
+      }
     } catch (err) {
-      status('Could not save: ' + err.message + '. Is "Start Portfolio.bat" running?', 'error');
+      status('Could not save: ' + err.message + (LOCAL ? '. Is "Start Portfolio.bat" running?' : ''), 'error');
     }
   }
 
@@ -187,14 +280,46 @@
     }
   }
 
-  $('ed-publish').addEventListener('click', publish);
-  $('ed-toggle').addEventListener('click', () => setEditing(true));
+  /* ---------- Wiring ---------- */
+  $('ed-toggle').addEventListener('click', startEditing);
   $('ed-save').addEventListener('click', async () => { await save(); if (!dirty) setEditing(false); });
   $('ed-cancel').addEventListener('click', () => {
     if (dirty && !confirm('Discard your unsaved changes?')) return;
     dirty = false;
     location.reload();
   });
+
+  if (LOCAL) {
+    $('ed-publish').addEventListener('click', publish);
+  } else {
+    $('ed-unlock').addEventListener('submit', async e => {
+      e.preventDefault();
+      const value = $('ed-token').value.trim();
+      if (!value) return;
+      setToken(value);
+      status('Checking key…', '');
+      try {
+        await checkToken();
+        $('ed-token').value = '';
+        $('ed-unlock').hidden = true;
+        setEditing(true);
+      } catch (err) {
+        setToken('');
+        status('Could not unlock: ' + err.message + '.', 'error');
+      }
+    });
+    $('ed-unlock-cancel').addEventListener('click', () => {
+      $('ed-unlock').hidden = true;
+      $('ed-toggle').hidden = false;
+      status('', '');
+    });
+    $('ed-lock').addEventListener('click', () => {
+      if (dirty && !confirm('Discard your unsaved changes and lock editing?')) return;
+      setToken('');
+      dirty = false;
+      location.reload();
+    });
+  }
 
   window.addEventListener('beforeunload', e => {
     if (dirty) { e.preventDefault(); e.returnValue = ''; }

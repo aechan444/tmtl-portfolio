@@ -905,6 +905,32 @@ button { font: inherit; color: inherit; }
 .ed-publish { background: var(--chalk-green); color: var(--board-deep); border-color: transparent; }
 .ed-publish:disabled { opacity: .6; cursor: progress; }
 .ed-status:empty { display: none; }
+.ed-unlock {
+  flex-basis: 100%;
+  order: -1;
+  width: min(360px, calc(100vw - 32px));
+  margin-left: auto;
+  padding: 18px;
+  border-radius: 16px;
+  background: var(--board-deep);
+  border: 1px solid rgba(238,241,232,.14);
+  border-top: 4px solid var(--chalk-yellow);
+  box-shadow: 0 24px 50px -20px rgba(0,0,0,.85);
+}
+.ed-unlock[hidden] { display: none; }
+.ed-unlock-title { margin: 0 0 6px; font-family: var(--display); font-weight: 700; }
+.ed-unlock-text { margin: 0 0 12px; font-size: .9rem; color: var(--chalk-dim); line-height: 1.5; }
+.ed-unlock input {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(238,241,232,.2);
+  background: var(--board);
+  color: var(--chalk);
+  font: inherit;
+}
+.ed-unlock-actions { display: flex; gap: 8px; margin-top: 12px; }
+#editor-bar.is-live #ed-toggle:not(:hover) { opacity: .75; }
 .ed-status {
   padding: 8px 14px;
   border-radius: 10px;
