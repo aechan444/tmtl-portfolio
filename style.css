@@ -964,6 +964,18 @@ button { font: inherit; color: inherit; }
 }
 .ed-replace:hover { background: var(--chalk-yellow); color: var(--board-deep); border-style: solid; }
 .reflection-actions .ed-replace, .intro-side .ed-replace { justify-self: start; align-self: center; }
+.ed-add {
+  display: block;
+  margin-top: 20px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  border: 2px dashed var(--c, var(--chalk-yellow));
+  background: transparent;
+  color: var(--c, var(--chalk-yellow));
+  font-weight: 700;
+  cursor: pointer;
+}
+.ed-add:hover { border-style: solid; background: rgba(238,241,232,.05); }
 
 /* ---------- TMTL Helper chatbot ---------- */
 .chat-launcher {

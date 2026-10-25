@@ -89,6 +89,7 @@
   const docInput = $('ed-doc');
   let imageTarget = null;
   let docTarget = null;
+  let addTarget = null;
 
   // Every link to a document in files/ gets a "Replace" button while editing
   const DOC_LINKS = 'a[href^="files/"]:not([href^="files/MEMBERS"])';
@@ -106,7 +107,19 @@
     });
   }
   function removeReplaceButtons() {
-    document.querySelectorAll('.ed-replace').forEach(btn => btn.remove());
+    document.querySelectorAll('.ed-replace, .ed-add').forEach(btn => btn.remove());
+  }
+
+  // Each module gets an "Add document" button while editing
+  function addAddButtons() {
+    document.querySelectorAll('.chapter-body').forEach(body => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ed-add';
+      btn.textContent = '＋ Add document';
+      btn._chapter = body.closest('.chapter');
+      body.appendChild(btn);
+    });
   }
 
   function status(msg, kind) {
@@ -135,7 +148,7 @@
     if (on) {
       blocks = findBlocks();
       blocks.forEach(el => { el.contentEditable = 'true'; el.spellcheck = true; });
-      if (!LOCAL) addReplaceButtons();
+      if (!LOCAL) { addReplaceButtons(); addAddButtons(); }
       status('Click any text to change it. Click a member photo to replace it.' + (LOCAL ? '' : ' Use ⟳ Replace to swap a document.'), '');
     } else {
       blocks.forEach(el => { el.removeAttribute('contenteditable'); el.removeAttribute('spellcheck'); });
@@ -170,6 +183,17 @@
       e.preventDefault();
       e.stopImmediatePropagation();
       docTarget = replaceBtn._link;
+      addTarget = null;
+      docInput.value = '';
+      docInput.click();
+      return;
+    }
+    const addBtn = e.target.closest('.ed-add');
+    if (addBtn) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      addTarget = addBtn._chapter;
+      docTarget = null;
       docInput.value = '';
       docInput.click();
       return;
@@ -243,8 +267,44 @@
   /* ---------- Replacing documents (live site) ---------- */
   const extOf = name => (name.match(/\.([a-z0-9]+)$/i) || [, ''])[1].toLowerCase();
 
+  // Add a new document to a module: upload it into files/MODULE N/ and list it in that module
+  async function addDocument(file, chapter) {
+    const number = parseInt(chapter.querySelector('.chapter-no').textContent, 10);
+    const path = `files/MODULE ${number}/${file.name.replace(/[^A-Za-z0-9 ._()-]/g, '-')}`;
+    const ext = extOf(file.name);
+    const title = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
+    status(`Uploading ${file.name}…`, '');
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      await putFile(path, bytesToBase64(bytes), `Add ${file.name} to Module ${number}`);
+
+      const body = chapter.querySelector('.chapter-body');
+      let list = body.querySelector('.files');
+      if (!list) {
+        // first document in an empty module: swap the placeholder for a file list
+        body.querySelector('.empty-board')?.remove();
+        chapter.classList.remove('is-empty');
+        list = document.createElement('ul');
+        list.className = 'files files-row';
+        body.querySelector('.ed-add').before(list);
+      }
+      const li = document.createElement('li');
+      const viewAttrs = ext === 'pdf' ? 'data-view target="_blank" rel="noopener"' : 'download';
+      li.innerHTML = `<a class="file" href="${encodeURI(path)}" ${viewAttrs}><i class="b ${ext}">${ext.toUpperCase()}</i><span></span>${ext === 'pdf' ? '' : '<em>↓</em>'}</a>`;
+      li.querySelector('span').textContent = title;
+      list.appendChild(li);
+      li.contentEditable = 'true';
+      blocks.push(li);
+      markDirty();
+      status(`Added ${file.name}. Rename it on the page if you like, then click “Save changes”.`, 'warn');
+    } catch (err) {
+      status('Could not add the file: ' + err.message, 'error');
+    }
+  }
+
   docInput.addEventListener('change', async () => {
     const file = docInput.files[0];
+    if (file && addTarget) { await addDocument(file, addTarget); addTarget = null; return; }
     const link = docTarget;
     if (!file || !link) return;
     const oldHref = link.getAttribute('href');
@@ -286,7 +346,7 @@
     const doc = document.documentElement.cloneNode(true);
     doc.querySelector('#editor-bar')?.remove();
     doc.querySelector('#chatbot')?.remove();
-    doc.querySelectorAll('.ed-replace').forEach(el => el.remove());
+    doc.querySelectorAll('.ed-replace, .ed-add').forEach(el => el.remove());
     doc.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
     doc.querySelectorAll('[spellcheck]').forEach(el => el.removeAttribute('spellcheck'));
     doc.querySelectorAll('img[data-saved-src]').forEach(img => {
