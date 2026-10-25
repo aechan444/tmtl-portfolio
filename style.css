@@ -951,6 +951,19 @@ button { font: inherit; color: inherit; }
 .editing [contenteditable="true"]:focus { outline: 2px solid var(--chalk-yellow); }
 .editing .polaroid img { cursor: pointer; outline: 2px dashed var(--chalk-yellow); outline-offset: -6px; }
 .editing .polaroid:hover { transform: none; }
+.ed-replace {
+  margin: 6px 0 0;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px dashed var(--chalk-yellow);
+  background: rgba(246, 214, 107, .1);
+  color: var(--chalk-yellow);
+  font-size: .8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ed-replace:hover { background: var(--chalk-yellow); color: var(--board-deep); border-style: solid; }
+.reflection-actions .ed-replace, .intro-side .ed-replace { justify-self: start; align-self: center; }
 
 /* ---------- TMTL Helper chatbot ---------- */
 .chat-launcher {

@@ -71,6 +71,7 @@
     (LOCAL ? '<button type="button" class="ed-btn ed-publish" id="ed-publish">🚀 Publish to GitHub</button>'
            : '<button type="button" class="ed-btn" id="ed-lock" hidden>Lock</button>') +
     '<input type="file" id="ed-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>' +
+    '<input type="file" id="ed-doc" accept=".pdf,.pptx,.ppt,.docx,.doc,.xlsx" hidden>' +
     (LOCAL ? '' :
       '<form class="ed-unlock" id="ed-unlock" hidden>' +
         '<p class="ed-unlock-title">Unlock editing</p>' +
@@ -85,7 +86,28 @@
 
   const $ = id => document.getElementById(id);
   const fileInput = $('ed-file');
+  const docInput = $('ed-doc');
   let imageTarget = null;
+  let docTarget = null;
+
+  // Every link to a document in files/ gets a "Replace" button while editing
+  const DOC_LINKS = 'a[href^="files/"]:not([href^="files/MEMBERS"])';
+  function addReplaceButtons() {
+    document.querySelectorAll(DOC_LINKS).forEach(link => {
+      if (link.closest('#editor-bar, .viewer, #chatbot')) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ed-replace';
+      btn.contentEditable = 'false';
+      btn.textContent = '⟳ Replace';
+      btn.title = 'Replace this document';
+      btn._link = link;
+      link.after(btn);
+    });
+  }
+  function removeReplaceButtons() {
+    document.querySelectorAll('.ed-replace').forEach(btn => btn.remove());
+  }
 
   function status(msg, kind) {
     const s = $('ed-status');
@@ -113,10 +135,12 @@
     if (on) {
       blocks = findBlocks();
       blocks.forEach(el => { el.contentEditable = 'true'; el.spellcheck = true; });
-      status('Click any text to change it. Click a member photo to replace it.', '');
+      if (!LOCAL) addReplaceButtons();
+      status('Click any text to change it. Click a member photo to replace it.' + (LOCAL ? '' : ' Use ⟳ Replace to swap a document.'), '');
     } else {
       blocks.forEach(el => { el.removeAttribute('contenteditable'); el.removeAttribute('spellcheck'); });
       blocks = [];
+      removeReplaceButtons();
     }
     $('ed-toggle').hidden = on;
     $('ed-save').hidden = !on;
@@ -141,6 +165,15 @@
   // Stop links, PDF previews and the viewer from opening while editing; route photo clicks to the file picker.
   window.addEventListener('click', e => {
     if (!editing || e.target.closest('#editor-bar')) return;
+    const replaceBtn = e.target.closest('.ed-replace');
+    if (replaceBtn) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      docTarget = replaceBtn._link;
+      docInput.value = '';
+      docInput.click();
+      return;
+    }
     const img = e.target.closest('.polaroid img');
     if (img) {
       e.preventDefault();
@@ -207,11 +240,53 @@
     }
   });
 
+  /* ---------- Replacing documents (live site) ---------- */
+  const extOf = name => (name.match(/\.([a-z0-9]+)$/i) || [, ''])[1].toLowerCase();
+
+  docInput.addEventListener('change', async () => {
+    const file = docInput.files[0];
+    const link = docTarget;
+    if (!file || !link) return;
+    const oldHref = link.getAttribute('href');
+    const oldPath = decodeURIComponent(oldHref);
+    const folder = oldPath.slice(0, oldPath.lastIndexOf('/'));
+    const sameType = extOf(file.name) === extOf(oldPath);
+    // same type: overwrite in place so every link keeps working; otherwise upload beside it under its own name
+    const newPath = sameType ? oldPath : `${folder}/${file.name.replace(/[^A-Za-z0-9 ._()-]/g, '-')}`;
+    const label = link.textContent.replace(/^(PDF|PPTX|DOCX)/, '').trim();
+    status(`Uploading ${file.name}…`, '');
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      await putFile(newPath, bytesToBase64(bytes), `Replace ${oldPath.split('/').pop()} with ${file.name}`);
+      if (sameType) {
+        status(`Replaced “${label}” ✓ The new file is live in about a minute.`, 'ok');
+        return;
+      }
+      // point every link, preview and badge that used the old file at the new one
+      const newHref = encodeURI(newPath);
+      document.querySelectorAll('[href], [src], [data-src]').forEach(el => {
+        for (const attr of ['href', 'src', 'data-src']) {
+          const v = el.getAttribute(attr);
+          if (v && v.split('#')[0] === oldHref) el.setAttribute(attr, newHref + (v.includes('#') ? v.slice(v.indexOf('#')) : ''));
+        }
+      });
+      const ext = extOf(file.name);
+      link.querySelectorAll('i.b').forEach(badge => { badge.textContent = ext.toUpperCase(); badge.className = 'b ' + ext; });
+      if (ext === 'pdf') { link.setAttribute('data-view', ''); link.removeAttribute('download'); }
+      else { link.removeAttribute('data-view'); link.setAttribute('download', ''); }
+      markDirty();
+      status(`Uploaded ${file.name}. Click “Save changes” to update the links on the page.`, 'warn');
+    } catch (err) {
+      status('Could not replace the file: ' + err.message, 'error');
+    }
+  });
+
   /* ---------- Saving ---------- */
   function cleanHTML() {
     const doc = document.documentElement.cloneNode(true);
     doc.querySelector('#editor-bar')?.remove();
     doc.querySelector('#chatbot')?.remove();
+    doc.querySelectorAll('.ed-replace').forEach(el => el.remove());
     doc.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
     doc.querySelectorAll('[spellcheck]').forEach(el => el.removeAttribute('spellcheck'));
     doc.querySelectorAll('img[data-saved-src]').forEach(img => {
